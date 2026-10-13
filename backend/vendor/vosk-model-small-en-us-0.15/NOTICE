@@ -1,0 +1,4 @@
+Bundled model: Vosk small US English model, version 0.15.
+Copyright 2020 Alpha Cephei Inc.
+The upstream model README and usage details are in this directory's README.
+This model is run locally by the backend; it is not downloaded or contacted at runtime.

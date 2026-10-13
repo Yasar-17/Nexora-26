@@ -1,5 +1,17 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Type, Volume2, VolumeX, Copy, Download, Check, Minus, Plus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Type,
+  Volume2,
+  Copy,
+  Download,
+  Check,
+  Minus,
+  Plus,
+  Pause,
+  Play,
+  Square,
+} from 'lucide-react';
+import { synthesizeSpeech } from '../services/documentApi';
 
 interface AccessibilityToolbarProps {
   textToRead: string;
@@ -14,32 +26,83 @@ export const AccessibilityToolbar: React.FC<AccessibilityToolbarProps> = ({
   onFontSizeChange,
   documentName = 'simplified-document',
 }) => {
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [speechAvailable] = useState(() => 'speechSynthesis' in window);
+  const [speechState, setSpeechState] = useState<
+    'idle' | 'loading' | 'ready' | 'playing' | 'paused'
+  >('idle');
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const stopSpeech = useCallback(() => {
-    if (speechAvailable) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-    }
-  }, [speechAvailable]);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const speechSession = useRef(0);
 
   useEffect(() => {
-    return () => stopSpeech();
-  }, [stopSpeech]);
+    const audio = audioRef.current;
+    return () => {
+      speechSession.current += 1;
+      audio?.pause();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+    };
+  }, []);
 
   const toggleSpeech = () => {
-    if (!speechAvailable) return;
-    if (isSpeaking) {
-      stopSpeech();
+    const audio = audioRef.current;
+    if (speechState === 'playing') {
+      audio?.pause();
+      setSpeechState('paused');
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-    setIsSpeaking(true);
+    if (speechState === 'paused') {
+      void audio?.play().catch(() => {
+        setSpeechError('Audio playback could not resume. Use the audio player controls to try again.');
+      });
+      return;
+    }
+
+    if (audioUrl && audio) {
+      audio.currentTime = 0;
+      void audio.play().catch(() => {
+        setSpeechError('Audio playback could not start. Use the audio player controls to try again.');
+      });
+      return;
+    }
+
+    const session = ++speechSession.current;
+    setSpeechError(null);
+    setSpeechState('loading');
+    void synthesizeSpeech(textToRead)
+      .then((audioBlob) => {
+        if (speechSession.current !== session) return;
+        if (audioBlob.type !== 'audio/wav' || audioBlob.size === 0) {
+          throw new Error('The backend returned an invalid audio file.');
+        }
+        const url = URL.createObjectURL(audioBlob);
+        audioUrlRef.current = url;
+        setAudioUrl(url);
+        setSpeechState('ready');
+        const player = audioRef.current;
+        if (player) {
+          player.src = url;
+          player.load();
+          void player.play().catch(() => {
+            setSpeechError('Audio is ready. Press Play in the audio controls to start listening.');
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (speechSession.current !== session) return;
+        setSpeechState('idle');
+        setSpeechError(
+          error instanceof Error ? error.message : 'Local speech generation failed.'
+        );
+      });
+  };
+
+  const stopSpeech = () => {
+    speechSession.current += 1;
+    audioRef.current?.pause();
+    if (audioRef.current) audioRef.current.currentTime = 0;
+    setSpeechState(audioUrl ? 'ready' : 'idle');
   };
 
   const handleCopy = async () => {
@@ -95,24 +158,99 @@ export const AccessibilityToolbar: React.FC<AccessibilityToolbarProps> = ({
       </div>
 
       {/* Read aloud */}
-      {speechAvailable && (
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={toggleSpeech}
-          aria-label={isSpeaking ? 'Stop reading aloud' : 'Read simplified text aloud'}
-          aria-pressed={isSpeaking}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-semibold transition-all duration-150 active:scale-95 focus-visible:outline-2 focus-visible:outline-blue-600 cursor-pointer shadow-2xs ${
-            isSpeaking
+          disabled={!textToRead.trim() || speechState === 'loading'}
+          aria-label={
+            speechState === 'playing'
+              ? 'Pause reading aloud'
+              : speechState === 'paused'
+                ? 'Resume reading aloud'
+                : speechState === 'loading'
+                  ? 'Preparing read-aloud audio'
+                  : 'Read displayed text aloud'
+          }
+          aria-pressed={speechState === 'playing'}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-sm font-semibold transition-all duration-150 active:scale-95 focus-visible:outline-2 focus-visible:outline-blue-600 cursor-pointer shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed ${
+            speechState === 'playing'
               ? 'border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 animate-pulse'
               : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-400'
           }`}
         >
-          {isSpeaking ? (
-            <VolumeX className="w-4 h-4" aria-hidden="true" />
+          {speechState === 'playing' ? (
+            <Pause className="w-4 h-4" aria-hidden="true" />
+          ) : speechState === 'paused' ? (
+            <Play className="w-4 h-4" aria-hidden="true" />
+          ) : speechState === 'loading' ? (
+            <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-blue-600 animate-spin" />
           ) : (
             <Volume2 className="w-4 h-4 text-blue-600 dark:text-blue-400" aria-hidden="true" />
           )}
-          <span>{isSpeaking ? 'Stop' : 'Read Aloud'}</span>
+          <span>
+            {speechState === 'playing'
+              ? 'Pause'
+              : speechState === 'paused'
+                ? 'Resume'
+                : speechState === 'loading'
+                ? 'Preparing audio…'
+                : audioUrl
+                  ? 'Play Again'
+                  : 'Read Aloud'}
+          </span>
         </button>
+        {(speechState === 'playing' || speechState === 'paused') && (
+          <button
+            onClick={stopSpeech}
+            aria-label="Stop reading aloud"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg border border-red-200 bg-white text-red-600 hover:bg-red-50 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-red-600"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
+            <span>Stop</span>
+          </button>
+        )}
+      </div>
+      {audioUrl && (
+        <audio
+          ref={audioRef}
+          controls
+          preload="metadata"
+          src={audioUrl}
+          aria-label="Read-aloud audio playback"
+          className="basis-full w-full max-w-xl"
+          onPlay={() => setSpeechState('playing')}
+          onPause={(event) => {
+            if (event.currentTarget.ended) {
+              setSpeechState('ready');
+            } else if (event.currentTarget.currentTime > 0) {
+              setSpeechState('paused');
+            }
+          }}
+          onEnded={() => setSpeechState('ready')}
+          onError={() => {
+            setSpeechState('ready');
+            setSpeechError('The generated audio could not be played by this browser.');
+          }}
+        />
+      )}
+
+      {speechError && (
+        <span className="basis-full text-xs text-red-600" role="alert">
+          {speechError}
+        </span>
+      )}
+      {speechState !== 'idle' && (
+        <span className="sr-only" role="status" aria-live="polite">
+          {speechState === 'loading'
+            ? 'Preparing offline read-aloud audio.'
+            : speechState === 'paused'
+              ? 'Reading paused.'
+              : speechState === 'ready'
+                ? 'Audio is ready to play.'
+                : speechState === 'playing'
+                ? 'Reading aloud.'
+                : ''}
+        </span>
       )}
 
       {/* Copy */}

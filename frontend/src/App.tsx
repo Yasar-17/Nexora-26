@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileSearch2, Wifi, WifiOff, Sun, Moon, Sparkles, ArrowRight } from 'lucide-react';
+import { FileSearch2, WifiOff, Sun, Moon, Sparkles, ArrowRight } from 'lucide-react';
 import { DocumentInput } from './components/DocumentInput';
 import { ReadingLevelSelector } from './components/ReadingLevelSelector';
 import { ResultsPanel } from './components/ResultsPanel';
@@ -16,6 +16,8 @@ export const App: React.FC = () => {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking');
   const [validationError, setValidationError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState(16);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [processingStatus, setProcessingStatus] = useState('');
 
   // Theme state: defaults to light ('light')
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -54,12 +56,21 @@ export const App: React.FC = () => {
       return;
     }
 
+    setUploadProgress(selectedFile ? 0 : null);
+    setProcessingStatus(selectedFile ? 'Preparing upload…' : '');
     setAppState({ stage: 'loading' });
 
     try {
       let response;
       if (selectedFile) {
-        response = await simplifyFile(selectedFile, readingLevel);
+        response = await simplifyFile(selectedFile, readingLevel, (percent) => {
+          setUploadProgress(percent);
+          setProcessingStatus(
+            percent >= 100
+              ? 'Upload complete. Extracting text and simplifying…'
+              : 'Uploading file…'
+          );
+        });
       } else {
         response = await simplifyText(pastedText.trim(), readingLevel);
       }
@@ -107,6 +118,9 @@ export const App: React.FC = () => {
           message: axiosErr.message ?? 'An unexpected error occurred.',
         });
       }
+    } finally {
+      setUploadProgress(null);
+      setProcessingStatus('');
     }
   }, [hasInput, selectedFile, pastedText, readingLevel]);
 
@@ -115,6 +129,8 @@ export const App: React.FC = () => {
     setSelectedFile(null);
     setPastedText('');
     setValidationError(null);
+    setUploadProgress(null);
+    setProcessingStatus('');
   };
 
   return (
@@ -197,7 +213,7 @@ export const App: React.FC = () => {
                 </span>
               </h1>
               <p className="mt-2 text-slate-600 dark:text-slate-400 text-base max-w-2xl leading-relaxed">
-                Upload a PDF or TXT, or paste text. Our AI rewrites it in clear, simple language and
+                Upload a PDF, text/Markdown file, or image, or paste text. Scanned pages and images are read with OCR; our AI rewrites the content in clear language and
                 highlights key points, action items, and deadlines.
               </p>
             </div>
@@ -232,6 +248,8 @@ export const App: React.FC = () => {
                   onFileChange={setSelectedFile}
                   onTextChange={setPastedText}
                   disabled={isLoading}
+                  uploadProgress={uploadProgress}
+                  processingStatus={processingStatus}
                 />
               </div>
 

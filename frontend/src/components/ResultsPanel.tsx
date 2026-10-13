@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { SimplifiedDocument } from '../types/document';
 import { AccessibilityToolbar } from './AccessibilityToolbar';
+import { DocumentQuestion } from './DocumentQuestion';
 
 const LEVEL_LABELS: Record<string, string> = {
   simple: 'Simple',
@@ -111,10 +112,13 @@ export const ResultsPanel: React.FC<ResultsPanelProps> = ({
         </div>
       )}
 
+      <DocumentQuestion documentText={result.original_text} />
+
       {/* Accessibility toolbar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 sm:justify-between p-4 bg-slate-50/80 dark:bg-slate-850/80 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xs">
         <AccessibilityToolbar
-          textToRead={result.simplified_text}
+          key={displayText}
+          textToRead={displayText}
           fontSize={fontSize}
           onFontSizeChange={onFontSizeChange}
           documentName={result.document_name}

@@ -28,6 +28,44 @@ class SpeechRequest(BaseModel):
         return value
 
 
+class AudioTranscriptionResponse(BaseModel):
+    success: Literal[True] = True
+    data: dict[str, str]
+    message: str = "Audio transcribed locally."
+
+
+class DocumentQuestionRequest(BaseModel):
+    document_text: str = Field(min_length=1, max_length=50_000)
+    question: str = Field(min_length=1, max_length=2_000)
+
+    @field_validator("document_text", "question")
+    @classmethod
+    def values_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("This field must not be empty.")
+        return value
+
+
+class DocumentAnswerContent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["answered", "not_in_document", "outside_scope"]
+    answer: str = Field(min_length=1)
+    evidence: list[str]
+
+
+class DocumentAnswerData(BaseModel):
+    answer: str
+    answerable: bool
+    evidence: list[str]
+
+
+class DocumentAnswerResponse(BaseModel):
+    success: Literal[True] = True
+    data: DocumentAnswerData
+    message: str = "Question checked against the provided document."
+
+
 class Deadline(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

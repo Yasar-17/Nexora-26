@@ -9,8 +9,14 @@ from pydantic import ValidationError
 from app.ai_service import simplify_document
 from app.config import settings
 from app.document_service import extract_document_text
+from app.question_service import answer_document_question
 from app.speech_service import synthesize_speech
+from app.transcription_service import MAX_AUDIO_BYTES, transcribe_audio
 from app.schemas import (
+    AudioTranscriptionResponse,
+    DocumentAnswerData,
+    DocumentAnswerResponse,
+    DocumentQuestionRequest,
     ErrorResponse,
     ReadingLevel,
     SpeechRequest,
@@ -57,10 +63,18 @@ async def request_validation_exception_handler(
     _: Request, exc: RequestValidationError
 ) -> JSONResponse:
     errors = exc.errors()
-    if any(error.get("type") == "string_too_long" for error in errors):
-        return error_response(
-            413, "Text exceeds the 50,000-character processing limit."
-        )
+    long_field = next(
+        (
+            error.get("loc", ())[-1]
+            for error in errors
+            if error.get("type") == "string_too_long"
+        ),
+        None,
+    )
+    if long_field == "question":
+        return error_response(413, "Question exceeds the 2,000-character limit.")
+    if long_field in {"text", "document_text"}:
+        return error_response(413, "Text exceeds the 50,000-character processing limit.")
     message = errors[0].get("msg", "Invalid request.") if errors else "Invalid request."
     return error_response(422, message)
 
@@ -107,3 +121,22 @@ async def synthesize_speech_audio(request: SpeechRequest) -> Response:
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.post("/api/speech/transcribe", response_model=AudioTranscriptionResponse)
+async def transcribe_voice_question(
+    audio: UploadFile = File(...),
+) -> AudioTranscriptionResponse:
+    content = await audio.read(MAX_AUDIO_BYTES + 1)
+    transcript = await transcribe_audio(content)
+    return AudioTranscriptionResponse(data={"transcript": transcript})
+
+
+@app.post("/api/document/ask", response_model=DocumentAnswerResponse)
+async def ask_document_question(
+    request: DocumentQuestionRequest,
+) -> DocumentAnswerResponse:
+    data: DocumentAnswerData = await answer_document_question(
+        request.document_text, request.question
+    )
+    return DocumentAnswerResponse(data=data)

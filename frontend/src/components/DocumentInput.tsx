@@ -7,7 +7,7 @@ import {
   File as FileIcon,
 } from 'lucide-react';
 
-const ACCEPTED_TYPES = ['.pdf', '.txt'];
+const ACCEPTED_TYPES = ['.pdf', '.txt', '.md', '.png', '.jpg', '.jpeg', '.webp'];
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 
 function formatBytes(bytes: number): string {
@@ -22,6 +22,8 @@ interface DocumentInputProps {
   onFileChange: (file: File | null) => void;
   onTextChange: (text: string) => void;
   disabled?: boolean;
+  uploadProgress?: number | null;
+  processingStatus?: string;
 }
 
 export const DocumentInput: React.FC<DocumentInputProps> = ({
@@ -30,6 +32,8 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
   onFileChange,
   onTextChange,
   disabled = false,
+  uploadProgress = null,
+  processingStatus = '',
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -43,11 +47,13 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
       setFileError(null);
       const ext = '.' + file.name.split('.').pop()?.toLowerCase();
       if (!ACCEPTED_TYPES.includes(ext)) {
-        setFileError('Only PDF and TXT files are supported.');
+        setFileError('Supported files: PDF, TXT, Markdown, PNG, JPG, JPEG, and WebP.');
+        onFileChange(null);
         return;
       }
       if (file.size > MAX_FILE_BYTES) {
         setFileError('File exceeds the 10 MB limit.');
+        onFileChange(null);
         return;
       }
       onFileChange(file);
@@ -140,40 +146,71 @@ export const DocumentInput: React.FC<DocumentInputProps> = ({
               onKeyDown={(e) => e.key === 'Enter' && !disabled && fileInputRef.current?.click()}
               tabIndex={disabled ? -1 : 0}
               role="button"
-              aria-label="Upload a PDF or TXT file. Click or drag and drop."
+              aria-label="Upload a supported document or image file. Click or drag and drop."
             >
               <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-3.5 group-hover:scale-110 group-hover:bg-blue-600 group-hover:text-white transition-all duration-200 shadow-xs">
                 <Upload className="w-6 h-6" aria-hidden="true" />
               </div>
               <p className="text-slate-800 dark:text-slate-200 font-semibold text-sm">Drag &amp; drop or click to upload</p>
-              <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">Supported: PDF, TXT &bull; Max size: 10 MB</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">
+                Supported: PDF, TXT, Markdown, PNG, JPG, JPEG, WebP &bull; Max size: 10 MB
+              </p>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.txt"
+                accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.webp"
                 onChange={handleFileInput}
                 className="sr-only"
-                aria-label="Choose a PDF or TXT file"
+                aria-label="Choose a supported document or image file"
                 disabled={disabled}
               />
             </div>
           ) : (
-            <div className="flex items-center gap-3.5 p-4 border border-slate-200 dark:border-slate-700/90 rounded-xl bg-slate-50/50 dark:bg-slate-800/80 shadow-xs">
-              <div className="p-2.5 bg-blue-100 dark:bg-blue-900/50 rounded-xl shrink-0 text-blue-600 dark:text-blue-400">
-                <FileIcon className="w-5 h-5" aria-hidden="true" />
+            <div className="p-4 border border-slate-200 dark:border-slate-700/90 rounded-xl bg-slate-50/50 dark:bg-slate-800/80 shadow-xs">
+              <div className="flex items-center gap-3.5">
+                <div className="p-2.5 bg-blue-100 dark:bg-blue-900/50 rounded-xl shrink-0 text-blue-600 dark:text-blue-400">
+                  <FileIcon className="w-5 h-5" aria-hidden="true" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{selectedFile.name}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {selectedFile.name.split('.').pop()?.toUpperCase()} &bull; {formatBytes(selectedFile.size)}
+                  </p>
+                </div>
+                <button
+                  onClick={handleRemoveFile}
+                  disabled={disabled}
+                  aria-label={`Remove ${selectedFile.name}`}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors focus-visible:outline-2 focus-visible:outline-red-500 cursor-pointer"
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{selectedFile.name}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{formatBytes(selectedFile.size)}</p>
-              </div>
-              <button
-                onClick={handleRemoveFile}
-                disabled={disabled}
-                aria-label={`Remove ${selectedFile.name}`}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors focus-visible:outline-2 focus-visible:outline-red-500 cursor-pointer"
-              >
-                <X className="w-4 h-4" aria-hidden="true" />
-              </button>
+              {processingStatus && (
+                <div className="mt-3 space-y-1.5" aria-live="polite">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-slate-600 dark:text-slate-300">{processingStatus}</p>
+                    {uploadProgress !== null && (
+                      <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">{uploadProgress}%</span>
+                    )}
+                  </div>
+                  {uploadProgress !== null && (
+                    <div
+                      className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700"
+                      role="progressbar"
+                      aria-label="File upload progress"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={uploadProgress}
+                    >
+                      <div
+                        className="h-full rounded-full bg-blue-600 transition-[width]"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
